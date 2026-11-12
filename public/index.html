@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>آرکادیا آنلاین</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 18px; background: #111827; color: #f9fafb;
+      font-family: Tahoma, Arial, sans-serif; }
+    main { max-width: 960px; margin: auto; }
+    h1 { margin: 0 0 12px; }
+    .bar, .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+    input, select, button { padding: 9px 12px; border: 0; border-radius: 6px; font: inherit; }
+    button { background: #2563eb; color: white; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #status { color: #fbbf24; min-height: 24px; }
+    #stats { color: #a7f3d0; }
+    canvas { display: block; width: 100%; max-width: 900px; height: auto; background: #172554;
+      border: 1px solid #64748b; border-radius: 8px; }
+    small { color: #cbd5e1; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>آرکادیا آنلاین — نبرد چهار کشور</h1>
+  <div class="bar">
+    <input id="name" maxlength="18" placeholder="نام بازیکن" aria-label="نام بازیکن">
+    <select id="country" aria-label="انتخاب کشور">
+      <option value="ایران">ایران</option><option value="ترکیه">ترکیه</option>
+      <option value="آلمان">آلمان</option><option value="ژاپن">ژاپن</option>
+      <option value="برزیل">برزیل</option><option value="استرالیا">استرالیا</option>
+    </select>
+    <button id="join">ورود به بازی</button>
+    <span id="stats">هنوز وارد بازی نشده‌اید.</span>
+  </div>
+  <div class="controls">
+    <button id="buy" disabled>خرید نیرو (۱۰۰ سکه)</button>
+    <button id="attack" disabled>حمله به حریف نزدیک</button>
+    <small>حرکت: کلیدهای جهت‌دار یا W/A/S/D</small>
+  </div>
+  <div id="status" role="status"></div>
+  <canvas id="map" width="900" height="700"></canvas>
+</main>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  const canvas = document.getElementById('map');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const statsEl = document.getElementById('stats');
+  const joinButton = document.getElementById('join');
+  const buyButton = document.getElementById('buy');
+  const attackButton = document.getElementById('attack');
+  let myId = null;
+  let game = { map: { width: 900, height: 700 }, players: [] };
+
+  joinButton.onclick = () => {
+    socket.emit('join', {
+      name: document.getElementById('name').value,
+      country: document.getElementById('country').value
+    });
+  };
+  buyButton.onclick = () => socket.emit('buy_troops');
+  attackButton.onclick = () => socket.emit('attack');
+  socket.on('joined', ({ id }) => {
+    myId = id;
+    joinButton.disabled = true;
+    document.getElementById('country').disabled = true;
+    buyButton.disabled = false;
+    attackButton.disabled = false;
+    statusEl.textContent = 'وارد بازی شدید.';
+  });
+  socket.on('notice', text => { statusEl.textContent = text; });
+  socket.on('state', state => { game = state; draw(); updateStats(); });
+
+  function updateStats() {
+    const me = game.players.find(p => p.id === myId);
+    statsEl.textContent = me
+      ? `${me.country} | بودجه: ${me.money} | قدرت: ${me.power} | ثبات: ${me.stability}% | بازیکنان: ${game.players.length}/۴`
+      : `بازیکنان حاضر: ${game.players.length}/۴`;
+  }
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#172554'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#29416f'; ctx.lineWidth = 1;
+    for (let x = 50; x < 900; x += 50) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 700); ctx.stroke();
+    }
+    for (let y = 50; y < 700; y += 50) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(900, y); ctx.stroke();
+    }
+    for (const p of game.players) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, 28, 0, Math.PI * 2);
+      ctx.fillStyle = p.id === myId ? '#22c55e' : '#ef4444'; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = '#f8fafc'; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '14px Tahoma';
+      ctx.fillText(p.country, p.x, p.y - 38);
+      ctx.font = '12px Tahoma'; ctx.fillText(`${p.name} | ${p.stability}%`, p.x, p.y + 48);
+    }
+  }
+  const keys = new Set();
+  window.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    if (['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(key)) e.preventDefault();
+    keys.add(key);
+  });
+  window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+  setInterval(() => {
+    if (!myId) return;
+    let dx = 0, dy = 0;
+    if (keys.has('arrowleft') || keys.has('a')) dx--;
+    if (keys.has('arrowright') || keys.has('d')) dx++;
+    if (keys.has('arrowup') || keys.has('w')) dy--;
+    if (keys.has('arrowdown') || keys.has('s')) dy++;
+    if (dx || dy) socket.emit('move', { dx, dy });
+  }, 100);
+</script>
+</body>
+</html>
